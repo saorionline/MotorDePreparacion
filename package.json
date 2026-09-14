@@ -4,8 +4,11 @@
   "description": "Clásico de algoritmos, estructuras de datos, matemáticas y más.",
   "main": "index.js",
   "scripts": {
-    "test": "npx ts-node algoritmos.ts",
-    "draw": "npx ts-node ./Mathematics/MaximumDraw.ts"
+    "01:emitir": "npx tsx ejercicios/01-suma-arreglo/1-emision.ts",
+    "01:preparar": "python ejercicios/01-suma-arreglo/2-preparacion.py",
+    "01:preguntar": "duckdb -c \".read ejercicios/01-suma-arreglo/3-preguntas.sql\"",
+    "01:todo": "npm run 01:emitir && npm run 01:preparar && npm run 01:preguntar",
+    "draw": "npx tsx ejercicios/04-extraccion-maxima/MaximumDraw.ts"
   },
   "repository": {
     "type": "git",

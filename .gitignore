@@ -427,3 +427,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# ── MotorDePreparacion · Ejercicio en Relevo ──
+# .js es producto de compilar .ts y no se versiona (Regla de verdad)
+ejercicios/**/*.js
+# salidas de cada estación (Regla de flujo: datos viajan por disco, no por git)
+ejercicios/**/datos/

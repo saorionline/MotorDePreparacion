@@ -1,0 +1,11 @@
+# Manifiesto de Python — dependencias de la estación 2 (preparación).
+# Equivalencias: package.json ↔ pyproject.toml · package-lock.json ↔ uv.lock
+# La estación 2 del piloto usa sólo stdlib (json, csv); las dependencias
+# se declaran aquí cuando un ejercicio las necesite.
+
+[project]
+name = "motor-de-preparacion"
+version = "0.1.0"
+description = "Estación 2 del relevo: limpia, valida contra el contrato, transforma."
+requires-python = ">=3.10"
+dependencies = []
