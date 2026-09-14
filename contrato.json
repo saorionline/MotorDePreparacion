@@ -1,0 +1,246 @@
+{
+  "contract": {
+    "version": "1.1.0",
+    "updated_at": "2026-09-14",
+    "description": "Contrato de datos de la estacion 1 (preparacion en Python). Fuente unica de verdad: ningun otro archivo redefine estos valores; SQL, Make y Retool los consumen desde aqui.",
+    "compatibility": {
+      "policy": "reject",
+      "policy_note": "Datos crudos capturados bajo una version distinta no se procesan hasta que exista una migracion explicita.",
+      "version_binding": "run_manifest",
+      "version_binding_note": "La version NO viaja dentro de cada registro crudo: un webhook de un proveedor nunca conoce nuestro contrato. La estampa la ingesta en un manifiesto por corrida.",
+      "run_manifest_path": "data/raw/{source}.{run_id}.manifest.json",
+      "run_manifest_fields": ["contract_version", "run_id", "source", "window_from", "window_to", "captured_at_utc", "row_count", "sha256"]
+    }
+  },
+
+  "business": {
+    "timezone": "America/Bogota",
+    "timezone_note": "Zona horaria de negocio. Ambos lados se convierten a esta zona ANTES de comparar dias calendario.",
+    "allowed_currencies": ["USD"],
+    "amount_unit": "cents",
+    "amount_type": "integer",
+    "amount_note": "Todo importe es entero en centavos. Un float sobre dinero es un defecto que mata la corrida.",
+    "reconciliation_window": { "from": "2026-09-08", "to": "2026-09-12" },
+    "tolerances": {
+      "date_tolerance_days": 2,
+      "date_tolerance_rationale": "Ciclo de liquidacion T+2 de la pasarela. PENDIENTE: confirmar contra la documentacion real del proveedor antes de la fase 2.",
+      "amount_tolerance_cents": 0,
+      "amount_tolerance_rationale": "Misma moneda y aritmetica entera: no existe ruido numerico. Cualquier diferencia distinta de cero es real y debe explicarse, no absorberse. Una tolerancia monetaria aqui solo serviria para ocultar perdidas por redondeo."
+    }
+  },
+
+  "sources": {
+    "gateway": {
+      "role": "A",
+      "system": "payment_gateway",
+      "file": "data/raw/sample_transactions_raw.jsonl",
+      "format": "jsonl",
+      "format_note": "Una linea = un objeto JSON. Se lee con json.loads() por linea, NO con json.load() sobre el archivo.",
+      "granularity": "gateway_event",
+      "granularity_note": "El grano es la ENTREGA de webhook, no la transaccion: el mismo evento puede llegar varias veces. Por eso existe el paso de deduplicacion.",
+      "timezone": "UTC",
+      "natural_key": { "field": "order_ref", "path": "data.order_ref" },
+      "dedupe_key": ["event_id"],
+      "dedupe_keep": "first_delivered",
+      "unknown_field_policy": "warn",
+      "unknown_field_rationale": "Los proveedores agregan campos sin avisar. Fallar dejaria el pipeline caido en cada actualizacion de su API; ignorar en silencio esconde cambios de contrato. Se avisa y se sigue.",
+      "fields": [
+        { "name": "event_id",           "path": "event_id",                "type": "string",    "required": true,  "unique": true },
+        { "name": "event_type",         "path": "event_type",              "type": "string",    "required": true,  "domain": ["payment.succeeded"] },
+        { "name": "delivered_at",       "path": "delivered_at",            "type": "timestamp", "required": true,  "tz": "UTC" },
+        { "name": "charge_id",          "path": "data.charge_id",          "type": "string",    "required": true },
+        { "name": "order_ref",          "path": "data.order_ref",          "type": "string",    "required": true },
+        { "name": "created_at",         "path": "data.created_at",         "type": "timestamp", "required": true,  "tz": "UTC" },
+        { "name": "currency",           "path": "data.currency",           "type": "string",    "required": true,  "domain": ["USD"] },
+        { "name": "amount_gross_cents", "path": "data.amount_gross_cents", "type": "integer",   "required": true,  "min": 1 },
+        { "name": "fee_cents",          "path": "data.fee_cents",          "type": "integer",   "required": true,  "min": 0 },
+        { "name": "amount_net_cents",   "path": "data.amount_net_cents",   "type": "integer",   "required": true,  "min": 0 },
+        { "name": "status",             "path": "data.status",             "type": "string",    "required": true,  "domain": ["succeeded"] },
+        { "name": "customer_ref",       "path": "data.customer_ref",       "type": "string",    "required": true },
+        { "name": "description",        "path": "data.description",        "type": "string",    "required": false, "trust": "untrusted",
+          "trust_note": "Texto libre controlado por un tercero. Nunca se interpola en SQL, ni se ejecuta, ni se pasa a un modelo sin sanear." }
+      ]
+    },
+
+    "erp": {
+      "role": "B",
+      "system": "erp_ventas",
+      "file": "data/raw/sample_payments_raw.jsonl",
+      "format": "jsonl",
+      "granularity": "ledger_entry",
+      "timezone": "America/Bogota",
+      "timezone_note": "Las fechas vienen SIN zona declarada y son locales. Compararlas en crudo contra UTC produce desfases de un dia que no existen.",
+      "natural_key": { "field": "document_ref", "path": "document_ref" },
+      "dedupe_key": ["entry_id"],
+      "dedupe_keep": "first_delivered",
+      "unknown_field_policy": "warn",
+      "amount_basis": "net",
+      "amount_basis_note": "OBSERVADO en los datos: el ERP registra unas veces el bruto y otras el neto. Ver la regla NET_POSTED_AS_GROSS. Esto es un defecto del sistema origen, no una regla de negocio.",
+      "fields": [
+        { "name": "entry_id",      "path": "entry_id",      "type": "string",  "required": true, "unique": true },
+        { "name": "document_ref",  "path": "document_ref",  "type": "string",  "required": true },
+        { "name": "posting_date",  "path": "posting_date",  "type": "date",    "required": true, "tz": "America/Bogota" },
+        { "name": "value_date",    "path": "value_date",    "type": "date",    "required": true, "tz": "America/Bogota" },
+        { "name": "currency",      "path": "currency",      "type": "string",  "required": true, "domain": ["USD"] },
+        { "name": "amount_cents",  "path": "amount_cents",  "type": "integer", "required": true, "min": 1 },
+        { "name": "direction",     "path": "direction",     "type": "string",  "required": true, "domain": ["debit", "credit"] },
+        { "name": "counterparty",  "path": "counterparty",  "type": "string",  "required": true },
+        { "name": "status",        "path": "status",        "type": "string",  "required": true, "domain": ["posted"] },
+        { "name": "source_system", "path": "source_system", "type": "string",  "required": true }
+      ]
+    }
+  },
+
+  "identity": {
+    "primary_key": "transaction_id",
+    "derivation": "transaction_id = normalize_key(natural_key del lado correspondiente)",
+    "normalization_rules": ["trim whitespace", "uppercase", "reject null", "reject empty"],
+    "normalization_note": "uppercase implica que la llave NO distingue mayusculas. Vale para ORD-1001; revisar antes de la fase 2, donde los identificadores del proveedor (ch_7a19) si distinguen caso.",
+    "join": {
+      "type": "full_outer",
+      "left": "gateway.order_ref",
+      "right": "erp.document_ref",
+      "note": "Full outer: las filas sin contraparte en cualquiera de los dos lados se conservan. Perderlas rompe la invariante de conservacion."
+    }
+  },
+
+  "canonical": {
+    "file": "data/processed/transactions_clean.csv",
+    "grain": "una fila por transaction_id",
+    "null_representation": "",
+    "null_note": "Celda vacia = desconocido. NO se escribe 0: un cero afirma que llegaron cero centavos, y eso hace mentir a las sumas.",
+    "columns": [
+      { "name": "transaction_id",          "type": "string",    "nullable": false, "produced_by": "station_1" },
+      { "name": "source_system",           "type": "string",    "nullable": false, "domain": ["payment_gateway"],            "produced_by": "station_1" },
+      { "name": "destination_system",      "type": "string",    "nullable": false, "domain": ["erp_ventas"],                 "produced_by": "station_1" },
+      { "name": "integration_type",        "type": "string",    "nullable": false, "domain": ["rest_api", "file"],           "produced_by": "station_1" },
+      { "name": "currency",                "type": "string",    "nullable": false, "produced_by": "station_1" },
+      { "name": "expected_amount_cents",   "type": "integer",   "nullable": true,  "source": "gateway.amount_gross_cents",   "produced_by": "station_1" },
+      { "name": "received_amount_cents",   "type": "integer",   "nullable": true,  "source": "erp.amount_cents",             "produced_by": "station_1" },
+      { "name": "fee_cents",               "type": "integer",   "nullable": true,  "source": "gateway.fee_cents",            "produced_by": "station_1" },
+      { "name": "difference_amount_cents", "type": "integer",   "nullable": true,  "formula": "expected_amount_cents - received_amount_cents", "produced_by": "station_1" },
+      { "name": "lag_days",                "type": "integer",   "nullable": true,  "formula": "dias calendario en business.timezone entre gateway.created_at y erp.posting_date", "produced_by": "station_1" },
+      { "name": "created_at",              "type": "timestamp", "nullable": true,  "tz": "UTC",                              "produced_by": "station_1" },
+      { "name": "reconciliation_status",   "type": "string",    "nullable": false, "domain": ["MATCHED", "MISMATCH", "PENDING", "FAILED", "REVIEW"], "produced_by": "station_1" },
+      { "name": "exception_reason",        "type": "string",    "nullable": true,  "domain": ["AMOUNT_MISMATCH", "MISSING_IN_ERP", "MISSING_IN_GATEWAY", "NET_POSTED_AS_GROSS", "SETTLEMENT_DELAY", "CURRENCY_UNEXPECTED"], "domain_note": "DUPLICATE_EVENT no esta aqui a proposito: las reentregas se eliminan en el paso de deduplicacion, antes de clasificar, y se contabilizan en la columna duplicates_removed. Un valor de dominio que ninguna regla puede asignar es configuracion muerta.", "produced_by": "station_1" },
+      { "name": "priority",                "type": "string",    "nullable": false, "domain": ["HIGH", "MEDIUM", "LOW"],      "produced_by": "station_1" },
+      { "name": "automation_flag",         "type": "boolean",   "nullable": false, "produced_by": "station_1" },
+      { "name": "duplicates_removed",      "type": "integer",   "nullable": false, "produced_by": "station_1" },
+      { "name": "detected_at",             "type": "timestamp", "nullable": true,  "produced_by": "station_3" },
+      { "name": "resolved_at",             "type": "timestamp", "nullable": true,  "produced_by": "station_3" },
+      { "name": "api_status",              "type": "string",    "nullable": true,  "domain": ["SUCCESS", "FAILED"],          "produced_by": "station_3" },
+      { "name": "automation_tool",         "type": "string",    "nullable": true,  "domain": ["Make", "Python", "Manual"],   "produced_by": "station_3" }
+    ],
+    "produced_by_note": "Las columnas marcadas station_3 salen vacias de la estacion 1 y NINGUNA regla de clasificacion puede leerlas. Una condicion que dependa de un campo que todavia no existe nunca se cumple."
+  },
+
+  "classification": {
+    "evaluation": "ordered_first_match",
+    "evaluation_note": "Se evalua en orden y gana la primera que aplica. El orden es una regla de negocio, no un detalle de implementacion.",
+    "rules": [
+      {
+        "order": 1,
+        "id": "MISSING_IN_ERP_PENDING",
+        "when": "received_amount_cents IS NULL AND lag_days_desde_created_at <= business.tolerances.date_tolerance_days",
+        "then": { "reconciliation_status": "PENDING", "exception_reason": "MISSING_IN_ERP", "priority": "LOW", "automation_flag": false },
+        "why": "Todavia esta dentro de la ventana de liquidacion: puede llegar. Una partida en transito no es un error."
+      },
+      {
+        "order": 2,
+        "id": "MISSING_IN_ERP_OVERDUE",
+        "when": "received_amount_cents IS NULL",
+        "then": { "reconciliation_status": "REVIEW", "exception_reason": "MISSING_IN_ERP", "priority": "by_amount", "automation_flag": false },
+        "why": "Cobrado al cliente y nunca contabilizado. Exige un humano: automatizar la creacion de un asiento contable sin revision es inaceptable."
+      },
+      {
+        "order": 3,
+        "id": "MISSING_IN_GATEWAY",
+        "when": "expected_amount_cents IS NULL",
+        "then": { "reconciliation_status": "REVIEW", "exception_reason": "MISSING_IN_GATEWAY", "priority": "by_amount", "automation_flag": false },
+        "why": "Asiento sin pago que lo respalde. Mas grave que el caso anterior: puede ser un ingreso inventado o un cobro por otro canal."
+      },
+      {
+        "order": 4,
+        "id": "CURRENCY_UNEXPECTED",
+        "when": "currency NOT IN business.allowed_currencies",
+        "then": { "reconciliation_status": "FAILED", "exception_reason": "CURRENCY_UNEXPECTED", "priority": "HIGH", "automation_flag": false },
+        "why": "Se rompio un supuesto del contrato. No se concilia lo que no se entiende."
+      },
+      {
+        "order": 5,
+        "id": "NET_POSTED_AS_GROSS",
+        "when": "difference_amount_cents == fee_cents AND fee_cents > 0",
+        "then": { "reconciliation_status": "MISMATCH", "exception_reason": "NET_POSTED_AS_GROSS", "priority": "by_amount", "automation_flag": true },
+        "why": "FIRMA. Una diferencia que coincide al centavo con la comision no es un descuadre: es el ERP registrando el neto donde va el bruto. Causa raiz identificada, correccion mecanica, automatizable."
+      },
+      {
+        "order": 6,
+        "id": "MATCHED",
+        "when": "abs(difference_amount_cents) <= business.tolerances.amount_tolerance_cents AND abs(lag_days) <= business.tolerances.date_tolerance_days",
+        "then": { "reconciliation_status": "MATCHED", "exception_reason": null, "priority": "LOW", "automation_flag": false },
+        "why": "Cuadra en importe y el desfase esta dentro del ciclo de liquidacion."
+      },
+      {
+        "order": 7,
+        "id": "SETTLEMENT_DELAY",
+        "when": "abs(difference_amount_cents) <= business.tolerances.amount_tolerance_cents",
+        "then": { "reconciliation_status": "REVIEW", "exception_reason": "SETTLEMENT_DELAY", "priority": "LOW", "automation_flag": true },
+        "why": "El dinero cuadra pero el asiento llego fuera de plazo. Problema de proceso, no de importe."
+      },
+      {
+        "order": 8,
+        "id": "AMOUNT_MISMATCH",
+        "when": "true",
+        "then": { "reconciliation_status": "MISMATCH", "exception_reason": "AMOUNT_MISMATCH", "priority": "by_amount", "automation_flag": false },
+        "why": "Red de seguridad. Si una fila llega hasta aqui, hay una diferencia que el contrato todavia no sabe explicar."
+      }
+    ],
+    "priority_by_amount": {
+      "HIGH": "abs(difference_amount_cents) >= 500",
+      "MEDIUM": "abs(difference_amount_cents) >= 100",
+      "LOW": "abs(difference_amount_cents) < 100",
+      "rationale": "PROVISIONAL. Umbrales fijados sobre el rango del fixture (100-1000 centavos) para que las tres clases sean alcanzables. En produccion deben salir de una politica de materialidad, no del rango de los datos de prueba."
+    }
+  },
+
+  "invariants": [
+    { "id": "INV-01", "statement": "Todo campo monetario es de tipo entero.",                                    "applies_to": "ambos lados y la salida", "severity": "critical", "action": "fail_run" },
+    { "id": "INV-02", "statement": "amount_gross_cents - fee_cents == amount_net_cents",                          "applies_to": "gateway",                 "severity": "critical", "action": "fail_run" },
+    { "id": "INV-03", "statement": "filas de salida == |refs de A (deduplicadas) union refs de B|",               "applies_to": "salida",                  "severity": "critical", "action": "fail_run" },
+    { "id": "INV-04", "statement": "transaction_id es unico en la salida",                                        "applies_to": "salida",                  "severity": "critical", "action": "fail_run" },
+    { "id": "INV-05", "statement": "difference_amount_cents == expected_amount_cents - received_amount_cents cuando ambos existen", "applies_to": "salida", "severity": "critical", "action": "fail_run" },
+    { "id": "INV-06", "statement": "toda moneda pertenece a business.allowed_currencies",                         "applies_to": "ambos lados",             "severity": "critical", "action": "fail_row" },
+    { "id": "INV-07", "statement": "toda fila tiene reconciliation_status; ninguna sale sin clasificar",          "applies_to": "salida",                  "severity": "critical", "action": "fail_run" },
+    { "id": "INV-08", "statement": "dos corridas sobre la misma entrada producen un CSV byte a byte identico",    "applies_to": "salida",                  "severity": "critical", "action": "fail_run" },
+    { "id": "INV-09", "statement": "ninguna columna marcada produced_by=station_3 aparece en una condicion de classification", "applies_to": "contrato", "severity": "critical", "action": "fail_run" }
+  ],
+  "invariant_actions": {
+    "fail_run": "Reportar por stderr con archivo, linea e invariante, y terminar con sys.exit(1). La corrida entera se descarta.",
+    "fail_row": "Reportar por stderr, marcar la fila como FAILED y continuar. El recuento de filas falladas se registra en la corrida."
+  },
+
+  "pipeline": {
+    "station_1_prepare": {
+      "tool": "Python",
+      "input": ["data/raw/sample_transactions_raw.jsonl", "data/raw/sample_payments_raw.jsonl"],
+      "output": "data/processed/transactions_clean.csv",
+      "steps": ["load", "validate_contract", "dedupe", "normalize", "join", "classify", "write"]
+    },
+    "station_2_query": {
+      "tool": "SQL",
+      "input": "data/processed/transactions_clean.csv",
+      "responsibility": "metricas de negocio y analisis de causa raiz sobre el dataset ya conciliado",
+      "note": "El emparejamiento ocurre en la estacion 1. SQL analiza, no concilia. El motor concreto (DuckDB vs Postgres) esta SIN DECIDIR: requiere un ADR en docs/decisions/."
+    },
+    "station_3_automate": {
+      "tool": "SIN DECIDIR",
+      "note": "El ENUNCIADO nombra n8n y Make indistintamente. Elegir uno y registrarlo como ADR.",
+      "condition": "priority == 'HIGH'",
+      "responsibility": "notificar, escalar y estampar detected_at / resolved_at / api_status / automation_tool"
+    },
+    "station_4_present": {
+      "tool": "Retool",
+      "responsibility": "cola de excepciones y tablero operativo"
+    }
+  }
+}

@@ -1,0 +1,130 @@
+{
+    "system_prompt": {
+    "role": "Data & Automation Execution Engine",
+    "context": "Procesamiento y conciliación de transacciones multi-sistema"
+    },
+    "data_contract": {
+    "version": "1.0.0",
+    "primary_key": {
+        "name": "transaction_id",
+        "type": "string",
+        "required": true
+    },
+    "input_sources": [
+        {
+        "name": "transactions",
+        "file": "sample_transactions_raw.jsonl",
+        "format": "jsonl",
+        "granularity": "transaction"
+        },
+        {
+        "name": "payments",
+        "file": "sample_payments_raw.jsonl",
+        "format": "jsonl",
+        "granularity": "transaction"
+        }
+    ],
+    "schema": {
+            "transaction_id": "string, required",
+            "source_system": ["ERP", "CRM", "PaymentGateway"],
+            "destination_system": ["Bank", "Ledger"],
+            "expected_amount": "float64, required",
+            "received_amount": "float64, required",
+            "difference_amount": "float64, calculated as expected_amount - received_amount",
+            "currency": "string, ISO 4217",
+            "reconciliation_status": [
+            "MATCHED",
+            "MISMATCH",
+            "PENDING",
+            "FAILED",
+            "REVIEW"
+        ],
+        "exception_reason": "string, nullable",
+        "priority": ["HIGH", "MEDIUM", "LOW"],
+        "automation_flag": "boolean",
+        "automation_tool": ["n8n", "Make", "Python", "Manual"],
+        "api_status": ["SUCCESS", "FAILED"]                         
+    },
+        "invariants": [
+        "transaction_id must not be null or empty",
+        "transaction_id must be unique after normalization",
+        "amounts are represented in cents as integer values",
+        "currency must be ISO 4217",
+        "difference_amount = expected_amount - received_amount",
+        "source and destination systems must belong to their declared enums"
+        ]
+    },
+    "business": {
+        "timezone": "America/Bogota",
+        "allowed_currencies": ["USD"],
+        "amount_unit": "cents",
+        "date_tolerance_days": 2,
+        "amount_tolerance_cents": 5
+        },
+    "execution_rules": {
+        "reconciliation": {
+        "if": "expected_amount == received_amount AND api_status == 'SUCCESS'",
+            "then": {
+            "reconciliation_status": "MATCHED",
+            "difference_amount": 0,
+            "automation_flag": false
+            }
+        },
+    "exception_handling": {
+        "if": "expected_amount != received_amount",
+        "then": {
+            "reconciliation_status": "MISMATCH",
+            "automation_flag": true
+        },
+        "priority": {
+            "if": "abs(difference_amount) > 1000 OR api_status == 'FAILED'",
+            "then": "HIGH",
+            "else": "LOW"
+        }
+    }
+    },
+    "normalization": {
+    "natural_keys": {
+    "transactions": "order_ref",
+    "payments": "document_ref"
+    },
+    "rules": [
+    "trim whitespace",
+    "convert to uppercase",
+    "reject null or empty keys"
+    ]
+    },
+    "pipeline_routing": {
+    "stage_1_ingest": {
+    "tools": ["Python", "tsx"],
+    "input": [
+    "sample_transactions_raw.jsonl",
+    "sample_payments_raw.jsonl"
+    ],
+    "output": "transactions_clean.csv",
+    "responsibilities": [
+    "load",
+    "clean",
+    "validate against contract",
+    "normalize",
+    "deduplicate",
+    "calculate differences",
+    "set exception flags"
+    ]
+    },
+    "stage_2_query": {
+    "tools": ["DuckDB", "SQL"],
+    "responsibility": "calculate business metrics and reconciliation results"
+    },
+    "stage_3_trigger": {
+    "tool": "n8n",
+    "condition": "priority == 'HIGH'",
+    "action": "trigger webhook"
+    },
+    "stage_4_present": {
+    "tool": "Retool",
+    "responsibility": "present standardized reconciliation dataset"
+    }
+    },
+"output_format": "JSON strict or executable SQL queries"
+}
