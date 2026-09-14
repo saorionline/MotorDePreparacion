@@ -1,69 +1,56 @@
-# ENUNCIADO CANÓNICO
-
-**v0.1 · adoptado el 13 sep 2026** · origen: *Ejercicio en Relevo* (PDF, 12 sep 2026)
-
-Este documento gobierna cada ejercicio de la carpeta `ejercicios/`. Cuando un archivo y este enunciado discrepan, se corrige el archivo.
+A continuación presento el resumen del documento integrado con el **marco conceptual del Enunciado Canónico**, estructurado según las etapas de procesamiento, sus componentes de entrada/salida y las reglas operativas del proyecto.
 
 ---
 
-## DEFINICIÓN
+# Resumen del Proyecto: Conciliación y Automatización de Transacciones
 
-Un ejercicio no es un archivo de código. Es un **contrato de datos** que declara tres cosas: sus **entradas**, sus **salidas esperadas** y sus **invariantes**.
+## 🎯 Frase Guía y Objetivo
 
-El contrato vive en `contrato.json` y es legible por los cuatro lenguajes. Ningún lenguaje es dueño del contrato; los cuatro lo obedecen.
+> *"Tomé una operación manual de conciliación, estructuré sus datos, detecté excepciones, automaticé el flujo y construí una interfaz para monitorear el resultado."*
 
-## ESTACIONES
-
-Todo ejercicio se resuelve una vez y se recorre cuatro veces, en este orden:
-
-| | Estación | Oficio |
-|---|---|---|
-| 1 | **emisión** | Resuelve el ejercicio en TypeScript y **emite** sus resultados como datos en disco. No imprime en consola. |
-| 2 | **preparación** | Lee lo emitido. Limpia, valida contra el contrato, transforma. Si el contrato se rompe, **falla ruidosamente**. |
-| 3 | **interrogación** | Lee lo preparado. Formula en SQL las preguntas que el código no responde por sí solo. |
-| 4 | **representación** | Lee las respuestas. Las convierte en figura mediante una especificación declarativa. |
-
-## REGLA DE FLUJO
-
-Los datos viajan en **una sola dirección**, siempre por archivos en disco.
-
-Ninguna estación importa el código de otra; sólo consume su salida.
-
-Si dos estaciones contienen la misma lógica, una de las dos está de más. *Esto es una prohibición, no una advertencia.*
-
-## REGLA DE VERDAD
-
-`.ts` es fuente. `.js` es producto de compilación y no se versiona.
-
-El `.md` no es fuente: es la **lectura humana** del contrato.
-
-Cuando el `.md` y el contrato discrepan, gana el contrato — y el `.md` se corrige en el mismo commit.
-
-## REGLA DE VECINDAD
-
-Todo lo que pertenece a un ejercicio vive en **una sola carpeta**: su enunciado, su contrato y sus cuatro estaciones.
-
-Queda prohibido separar la nota de su código en árboles distintos. *Ése fue el origen del desorden actual.*
-
-> Convivencia con `learningBook/`: cada ejercicio lleva su `enunciado.md` breve (la lectura humana del contrato, obligatoria y vecina del código). El libro explicativo extendido vive en `learningBook/` y **apunta** al ejercicio; nunca declara verdades propias sobre entradas, salidas o invariantes.
-
-## CRITERIO DE TERMINACIÓN
-
-Un ejercicio está terminado cuando las cuatro estaciones corren con **un solo comando** y la figura final es explicable con el enunciado en la mano, sin abrir el código.
+El proyecto transforma un proceso manual, fragmentado y propenso a errores en un **pipeline estructurado de datos de dirección única (Antes → Después)**, orientado a identificar la causa raíz de las inconsistencias y automatizar la gestión de excepciones.
 
 ---
 
-## PROCESADORES (decisiones adoptadas)
+## 🔄 Arquitectura y Flujo de Estaciones (Pipeline)
 
-| Estación | Dependencias | Ejecutor |
-|---|---|---|
-| 1 · TypeScript | `package.json` + `tsconfig.json` | `tsx` |
-| 2 · Python | `pyproject.toml` | `python` / `uv run` |
-| 3 · SQL | ninguna — motor embebido | `duckdb` |
-| 4 · Figura | spec `.json` | **Vega-Lite** |
+| Estación / Etapa | Herramienta / Tecnología | Input | Proceso / Transformación | Output |
+| --- | --- | --- | --- | --- |
+| **1. Ingesta y Preparación** | **APIs REST + Python** | JSON / CSV crudos (`transactions_raw.json`, `payments_raw.json`) | Carga, limpieza, validación contra contrato, deduplicación, cálculo de diferencias y banderas de excepción. | `transactions_clean.csv` (Tabla limpia y estandarizada). |
+| **2. Interrogación y Motor** | **SQL** | Tabla de datos estructurados | Consultas operacionales para responder preguntas de negocio (volúmenes, causas de fallos, tiempos de resolución, montos en diferencia). | Métricas de negocio y dataset conciliado (`reconciliation_transactions`). |
+| **3. Automatización** | **n8n / Make** | Registro de excepciones con metadata (`priority`, `difference`, `status`) | Evaluación de severidad (priorización) y disparado de workflows/alertas. | Notificaciones (Slack/Email), actualización en base de datos y refresco de interfaz. |
+| **4. Representación Operativa** | **Retool** | Base de datos SQL + salidas de workflows | Consolidación de información para monitoreo en tiempo real y toma de decisiones. | Dashboard operativo unificado para analistas. |
 
-- Dependencias: **una por lenguaje** (`package.json`, `pyproject.toml`). Inevitable.
-- Tareas: **una sola puerta** — los `scripts` de npm invocan Python y SQL.
-- Python es **estación**, no tercera respuesta.
-- Motor SQL: **DuckDB** (lee CSV/JSON directo, un binario, cero servidor).
-- Figura: **Vega-Lite** (la gráfica también se declara, no se programa).
+---
+
+## 📐 El Grano y Dimensiones del Modelo de Datos
+
+* **El Grano (PK):** `transaction_id`. Una fila representa **una sola operación/transacción** susceptible de ser conciliada entre dos sistemas.
+* **Valores Monetarios:** Se deben incluir explícitamente `expected_amount`, `received_amount`, `difference_amount` y `currency` para identificar el origen exacto del descuadre.
+* **Línea Temporal (Timestamps):** Seguimiento de la trazabilidad mediante `created_at` → `detected_at` → `resolved_at` (permite medir tiempos de detección y resolución).
+* **Trazabilidad de Sistemas e Integraciones:** `source_system`, `destination_system`, `integration_type` (ej. REST API) y `api_status` (SUCCESS / FAILED).
+* **Gestión de Excepciones:**
+* `reconciliation_status`: MATCHED, MISMATCH, PENDING, FAILED, REVIEW.
+* `exception_reason`: Amount mismatch, Missing transaction, Duplicate, API failure, Currency mismatch, etc.
+* `priority`: Basado en reglas (HIGH, MEDIUM, LOW) según el monto o tipo de fallo.
+
+
+* **Criterio de Automatización:**
+* `automation_flag` (TRUE/FALSE): Indica si una transacción/excepción es elegible para un flujo automatizado.
+* `automation_tool`: Identifica la herramienta ejecutora (n8n, Make, Python, Manual).
+
+
+
+---
+
+## ⚖️ Reglas de Gobierno del Proyecto
+
+1. **Unireccionalidad del Flujo:** Los datos viajan en una sola dirección a través de archivos e interfaces intermedias. Ninguna herramienta asume el rol de otra ni duplica lógica.
+2. **Desacoplamiento Tecnológico:** Cada herramienta cumple una responsabilidad clara (Python procesa, SQL analiza, n8n automatiza, Retool visualiza).
+3. **Orientación a Negocio:** El análisis no busca solo contar errores, sino diagnosticar causas raíz, medir eficiencias operativas y reducir la carga manual de trabajo.
+
+---
+
+## 💼 Discurso para Entrevistas (Narrativa de Valor)
+
+> *"Diseñé un flujo unificado de conciliación donde los datos de transacciones se consumen vía APIs REST, Python los valida y transforma, SQL ejecuta el análisis de conciliación e identifica las causas raíz de las diferencias, n8n gestiona el flujo automático de excepciones según su prioridad, y Retool provee un dashboard operativo para los analistas."*

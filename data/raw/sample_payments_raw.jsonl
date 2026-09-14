@@ -1,0 +1,4 @@
+{"entry_id":"GL-2026-09-0041","document_ref":"ORD-1001","posting_date":"2026-09-08","value_date":"2026-09-08","currency":"USD","amount_cents":425,"direction":"debit","counterparty":"CUS-0077","status":"posted","source_system":"erp_ventas"}
+{"entry_id":"GL-2026-09-0047","document_ref":"ORD-1002","posting_date":"2026-09-09","value_date":"2026-09-09","currency":"USD","amount_cents":922,"direction":"debit","counterparty":"CUS-0112","status":"posted","source_system":"erp_ventas"}
+{"entry_id":"GL-2026-09-0055","document_ref":"ORD-1003","posting_date":"2026-09-12","value_date":"2026-09-12","currency":"USD","amount_cents":610,"direction":"debit","counterparty":"CUS-0091","status":"posted","source_system":"erp_ventas"}
+{"entry_id":"GL-2026-09-0052","document_ref":"ORD-1005","posting_date":"2026-09-10","value_date":"2026-09-10","currency":"USD","amount_cents":330,"direction":"debit","counterparty":"CUS-0203","status":"posted","source_system":"erp_ventas"}

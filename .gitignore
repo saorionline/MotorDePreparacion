@@ -1,8 +1,86 @@
-﻿node_modules/
-datos/crudo/
-datos/limpio/
-datos/salida/
+# ============================================================
+#  MotorDePreparacion — .gitignore
+#  Regla de oro: los DATOS no se versionan; los FIXTURES sí.
+# ============================================================
+
+# ------------------------------------------------------------
+# Datos
+# ------------------------------------------------------------
+# Se ignora el CONTENIDO de las carpetas, no las carpetas.
+#
+# IMPORTANTE: aqui va "data/raw/*" y NO "data/raw/".
+# Con la barra final, git excluye el DIRECTORIO entero y deja de
+# mirar dentro: ningun "!" posterior puede rescatar un archivo.
+# Con "/*" se excluyen los hijos uno a uno y las excepciones sí aplican.
+data/raw/*
+!data/raw/.gitkeep
+!data/raw/sample_*
+
+data/processed/*
+!data/processed/.gitkeep
+
+# ------------------------------------------------------------
+# Secretos  (tokens de pasarela, credenciales de banca, claves de API)
+# ------------------------------------------------------------
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.p12
+credentials*.json
+secrets*.json
+serviceAccount*.json
+
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
 __pycache__/
+*.py[cod]
 .venv/
+venv/
+.python-version
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# ------------------------------------------------------------
+# Node
+# ------------------------------------------------------------
+node_modules/
+npm-debug.log*
+
+# ------------------------------------------------------------
+# Bases de datos locales de trabajo
+# ------------------------------------------------------------
+*.sqlite
+*.sqlite3
+*.db
+
+# ------------------------------------------------------------
+# Obsidian
+# ------------------------------------------------------------
+# workspace.json guarda que paneles tienes abiertos: cambia en cada
+# sesion y ensucia todos los diffs. El resto de .obsidian si se versiona.
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+
+# ------------------------------------------------------------
+# Sistema operativo y editores
+# ------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp
+*~
+
+# ------------------------------------------------------------
+# NO ignorado a proposito
+# ------------------------------------------------------------
+# retool/ y make/ SI se versionan: los exports y blueprints son la
+# evidencia de portafolio. Antes de commitear uno, abrelo y borra a
+# mano cualquier token, webhook con secreto o cadena de conexion.
